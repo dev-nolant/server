@@ -1,0 +1,14 @@
+---
+services:
+  youcube:
+    build:
+      context: .
+      dockerfile: Dockerfile.nvidia
+    image: youcube:nvidia
+    restart: always
+    hostname: youcube
+    ports:
+      - 5000:5000
+    #env_file: .env
+    runtime: nvidia
+...

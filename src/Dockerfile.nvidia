@@ -1,0 +1,66 @@
+#!/usr/bin/env dockerfile-shebang
+
+FROM ghcr.io/commandcracker/ubuntu-ffmpeg:latest AS ffmpeg
+
+FROM ffmpeg AS sanjuuni
+
+ENV SANJUUNI_VERSION=49cb275d4ef64d2bee3d5d2cbc5baf47787bedc2
+
+ARG SANJUUNI_SHA512SUM="22c85f9a5c16c0acb4dde971b64f53e765a8d607065e7a25115103925124e33a0680da3790e85c4343b7d320a0170b6ae096ec7f2b48b22582cf96681fd3a78c *sanjuuni.tar.gz"
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+  ocl-icd-opencl-dev \
+  wget \
+  clang \
+  make \
+  libpoco-dev; \
+  wget --progress=dot:giga --output-document=sanjuuni.tar.gz https://github.com/MCJack123/sanjuuni/archive/${SANJUUNI_VERSION}.tar.gz; \
+  echo "${SANJUUNI_SHA512SUM}" | sha512sum -c -; \
+  mkdir --parents sanjuuni; \
+  tar --extract --directory sanjuuni --strip-components=1 --file=sanjuuni.tar.gz
+
+WORKDIR /sanjuuni
+
+RUN set -eux; \
+  ./configure; \
+  make
+
+FROM ffmpeg
+
+WORKDIR /youcube
+
+COPY --from=sanjuuni /sanjuuni/sanjuuni /usr/local/bin
+
+COPY requirements.txt .
+COPY --chown=1000:1000 youcube/*.py /youcube
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# hadolint ignore=SC1091
+RUN set -eux; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends \
+  libpoco-dev \
+  python3-pip \
+  ocl-icd-libopencl1; \
+  pip install --break-system-packages --no-cache-dir -r requirements.txt; \
+  rm requirements.txt __main__.py; \
+  chown 1000:1000 /youcube/; \
+  mkdir -p /etc/OpenCL/vendors; \
+  echo "libnvidia-opencl.so.1" > /etc/OpenCL/vendors/nvidia.icd
+
+ENV \
+  NVIDIA_VISIBLE_DEVICES=all \
+  NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+  # Make sure, that the container is accessible from outside
+  HOST=0.0.0.0 \
+  # yt-dlp cache dir
+  XDG_CACHE_HOME="/youcube/.yt-dlp-cache"
+
+USER 1000:1000
+
+ENTRYPOINT ["python3", "youcube.py"]
