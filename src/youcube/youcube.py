@@ -331,6 +331,10 @@ app.config.WEBSOCKET_PING_INTERVAL = 0
 if getenv("SANIC_NO_UVLOOP"):
     app.config.USE_UVLOOP = False
 
+# Initialize shared_ctx.data early (works with single_process=True)
+# Use regular dict instead of Manager().dict() for single-process mode
+app.shared_ctx.data = {}
+
 actions = {}
 
 # add all actions from default action set
@@ -366,19 +370,39 @@ def data_cache_cleaner(data: dict):
 
 
 # pylint: disable=redefined-outer-name
-@app.main_process_ready
-async def ready(app: Sanic, _):
-    """See https://sanic.dev/en/guide/basics/listeners.html"""
+@app.before_server_start
+async def before_server_start(app: Sanic):
+    """Initialize shared_ctx.data and cache cleaner before server starts"""
+    # Ensure shared_ctx.data is initialized (works with single_process=True)
+    if not hasattr(app.shared_ctx, 'data') or app.shared_ctx.data is None:
+        app.shared_ctx.data = {}
+    
     if DATA_CACHE_CLEANUP_INTERVAL > 0 and DATA_CACHE_CLEANUP_AFTER > 0:
-        app.manager.manage(
-            "Data-Cache-Cleaner", data_cache_cleaner, {"data": app.shared_ctx.data}
-        )
+        # Only use manager.manage() if manager is available (multiprocess mode)
+        if hasattr(app, 'manager') and app.manager is not None:
+            app.manager.manage(
+                "Data-Cache-Cleaner", data_cache_cleaner, {"data": app.shared_ctx.data}
+            )
+        else:
+            # For single-process mode, run cache cleaner in background task
+            async def run_cache_cleaner():
+                import asyncio
+                loop = asyncio.get_event_loop()
+                await loop.run_in_executor(None, data_cache_cleaner, app.shared_ctx.data)
+            app.add_task(run_cache_cleaner())
 
 
 @app.main_process_start
 async def main_start(app: Sanic):
     """See https://sanic.dev/en/guide/basics/listeners.html"""
-    app.shared_ctx.data = Manager().dict()
+    # Initialize shared_ctx.data if not already initialized
+    # For single_process=True, use regular dict; for multiprocess, use Manager().dict()
+    if not hasattr(app.shared_ctx, 'data') or app.shared_ctx.data is None:
+        # Check if we're in single-process mode by checking if manager is available
+        if hasattr(app, 'manager') and app.manager is not None:
+            app.shared_ctx.data = Manager().dict()
+        else:
+            app.shared_ctx.data = {}
 
     if which(FFMPEG_PATH) is None:
         logger.warning("FFmpeg not found.")
