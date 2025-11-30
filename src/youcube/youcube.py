@@ -377,32 +377,23 @@ async def before_server_start(app: Sanic):
     if not hasattr(app.shared_ctx, 'data') or app.shared_ctx.data is None:
         app.shared_ctx.data = {}
     
+    # For single_process=True, use background task for cache cleaner
+    # (manager.manage() is not available/needed in single-process mode)
     if DATA_CACHE_CLEANUP_INTERVAL > 0 and DATA_CACHE_CLEANUP_AFTER > 0:
-        # Only use manager.manage() if manager is available (multiprocess mode)
-        if hasattr(app, 'manager') and app.manager is not None:
-            app.manager.manage(
-                "Data-Cache-Cleaner", data_cache_cleaner, {"data": app.shared_ctx.data}
-            )
-        else:
-            # For single-process mode, run cache cleaner in background task
-            async def run_cache_cleaner():
-                import asyncio
-                loop = asyncio.get_event_loop()
-                await loop.run_in_executor(None, data_cache_cleaner, app.shared_ctx.data)
-            app.add_task(run_cache_cleaner())
+        async def run_cache_cleaner():
+            import asyncio
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, data_cache_cleaner, app.shared_ctx.data)
+        app.add_task(run_cache_cleaner())
 
 
 @app.main_process_start
 async def main_start(app: Sanic):
     """See https://sanic.dev/en/guide/basics/listeners.html"""
     # Initialize shared_ctx.data if not already initialized
-    # For single_process=True, use regular dict; for multiprocess, use Manager().dict()
+    # With single_process=True, this listener may not run, but if it does, use regular dict
     if not hasattr(app.shared_ctx, 'data') or app.shared_ctx.data is None:
-        # Check if we're in single-process mode by checking if manager is available
-        if hasattr(app, 'manager') and app.manager is not None:
-            app.shared_ctx.data = Manager().dict()
-        else:
-            app.shared_ctx.data = {}
+        app.shared_ctx.data = {}
 
     if which(FFMPEG_PATH) is None:
         logger.warning("FFmpeg not found.")
