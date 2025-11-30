@@ -81,6 +81,7 @@ ENV \
 
 USER 1000:1000
 
-COPY --from=builder /youcube/__pycache__ /opt/server
+COPY --from=builder /youcube/__pycache__/youcube.cpython-*.pyc /opt/server/youcube.pyc
 
 ENTRYPOINT ["python3", "youcube.pyc"]
+
