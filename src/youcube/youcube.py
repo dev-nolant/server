@@ -6,7 +6,7 @@ YouCube server — fixed for Sanic multiprocess loader
 """
 
 from sanic import Sanic
-from sanic.response import json, file
+from sanic.response import json, raw, text
 
 # 🟢 Create the app at import time, REQUIRED for Sanic multiprocess
 app = Sanic("youcube")
@@ -479,7 +479,13 @@ def main():
     port = int(getenv("PORT", 8080))
     fast = getenv("SANIC_NO_UVLOOP") != "true"
 
-    app.run(host=host, port=port, fast=fast, access_log=True)
+    app.run(
+        host=host,
+        port=port,
+        fast=fast,
+        access_log=True,
+        single_process=True,   # ← REQUIRED
+    )
 
 
 if __name__ == "__main__":
