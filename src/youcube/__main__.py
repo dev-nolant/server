@@ -6,7 +6,8 @@ Runs the main function
 """
 
 # Built-in modules
-from youcube import main
+from .youcube import main
 
 if __name__ == "__main__":
     main()
+
