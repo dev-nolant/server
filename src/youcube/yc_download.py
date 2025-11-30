@@ -34,7 +34,6 @@ except ModuleNotFoundError:
     from json import dumps
 
 # pip modules
-from sanic import Websocket
 from yt_dlp import YoutubeDL
 
 # pylint settings
@@ -51,7 +50,7 @@ DISABLE_OPENCL = bool(getenv("DISABLE_OPENCL"))
 
 
 def download_video(
-    temp_dir: str, media_id: str, resp: Websocket, loop, width: int, height: int
+    temp_dir: str, media_id: str, resp, loop, width: int, height: int
 ):
     """
     Converts the downloaded video to 32vid
@@ -97,7 +96,7 @@ def download_video(
         )
 
 
-def download_audio(temp_dir: str, media_id: str, resp: Websocket, loop):
+def download_audio(temp_dir: str, media_id: str, resp, loop):
     """
     Converts the downloaded audio to dfpwm
     """
@@ -143,7 +142,7 @@ def download_audio(temp_dir: str, media_id: str, resp: Websocket, loop):
 
 def download(
     url: str,
-    resp: Websocket,
+    resp,
     loop,
     width: int,
     height: int,
@@ -179,14 +178,29 @@ def download(
 
     # FIXME: Cleanup on Exception
     with TemporaryDirectory(prefix="youcube-") as temp_dir:
+        # Use more flexible format selection with fallbacks
+        # For video: try worst mp4, then worst video, then best available
+        # For audio: try worst audio, then best available
+        format_selector = (
+            "worst[ext=mp4]/worstvideo[ext=mp4]/worstvideo/worst/best"
+            if is_video
+            else "worstaudio/worst/bestaudio/best"
+        )
+        
         yt_dl_options = {
-            "format": "worst[ext=mp4]/worst" if is_video else "worstaudio/worst",
+            "format": format_selector,
             "outtmpl": join(temp_dir, "%(id)s.%(ext)s"),
             "default_search": "auto",
             "restrictfilenames": True,
             "extract_flat": "in_playlist",
             "progress_hooks": [my_hook],
             "logger": YTDLPLogger(),
+            # Use more compatible YouTube extractors to avoid SABR streaming issues
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "ios", "web"],  # Try android/ios first, fallback to web
+                }
+            },
         }
 
         yt_dl = YoutubeDL(yt_dl_options)
@@ -213,7 +227,29 @@ def download(
                 else:
                     url = processed_url
 
-        data = yt_dl.extract_info(url, download=False)
+        # Try to extract info, with fallback to simpler format if format selection fails
+        try:
+            data = yt_dl.extract_info(url, download=False)
+        except Exception as e:
+            error_msg = str(e)
+            # If format selection failed, try with simpler format selector
+            if "Requested format is not available" in error_msg or "format" in error_msg.lower():
+                logger.warning("Format selection failed, trying with simpler format selector: %s", error_msg)
+                # Fallback to simplest format selection
+                yt_dl_options["format"] = "worst/best" if is_video else "worstaudio/bestaudio"
+                yt_dl = YoutubeDL(yt_dl_options)
+                try:
+                    data = yt_dl.extract_info(url, download=False)
+                except Exception as e2:
+                    # If still fails, return error to client
+                    logger.error("Failed to extract info even with fallback format: %s", e2)
+                    return {
+                        "action": "error",
+                        "message": f"Failed to get video information: {error_msg}. Please try again later."
+                    }, []
+            else:
+                # Re-raise if it's not a format error
+                raise
 
         if data.get("extractor") == "generic":
             data["id"] = "g" + data.get("webpage_url_domain") + data.get("id")
@@ -293,4 +329,3 @@ def download(
         files.append(get_video_name(media_id, width, height))
 
     return out, files
-
