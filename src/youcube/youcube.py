@@ -7,7 +7,6 @@ YouCube server — fixed for Sanic multiprocess loader
 
 from sanic import Sanic
 from sanic.response import json, file
-from sanic.websocket import WebSocket
 
 # 🟢 Create the app at import time, REQUIRED for Sanic multiprocess
 app = Sanic("youcube")
@@ -48,7 +47,7 @@ except ImportError:
 
 
 # pip modules
-from sanic import Request, Websocket
+from sanic import Request
 from sanic.compat import open_async
 from sanic.exceptions import SanicException
 from sanic.handlers import ErrorHandler
@@ -218,7 +217,7 @@ class Actions:
     # pylint: disable=missing-function-docstring
 
     @staticmethod
-    async def request_media(message: dict, resp: Websocket, request: Request):
+    async def request_media(message: dict, resp, request: Request):
         loop = get_event_loop()
         # get "url"
         url = message.get("url")
@@ -449,7 +448,7 @@ async def stream_32vid(request: Request, id: str, width: int, height: int):
 
 @app.websocket("/")
 # pylint: disable-next=invalid-name
-async def wshandler(request: Request, ws: Websocket):
+async def wshandler(request: Request, ws):
     """Handels web-socket requests"""
     if NO_COLOR:
         prefix = f"[{request.client_ip}] "
