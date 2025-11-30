@@ -2,15 +2,31 @@
 # -*- coding: utf-8 -*-
 
 """
-YouCube Server
+YouCube server — fixed for Sanic multiprocess loader
 """
+
+from sanic import Sanic
+from sanic.response import json, file
+from sanic.websocket import WebSocket
+
+# 🟢 Create the app at import time, REQUIRED for Sanic multiprocess
+app = Sanic("youcube")
+
+# Continue importing your modules normally
+from yc_logging import setup_logging
+from yc_download import download
+from yc_spotify import SpotifyURLProcessor
+from yc_utils import is_save
+from os import getenv
+
+logger = setup_logging()
 
 # built-in modules
 from asyncio import get_event_loop
 from base64 import b64encode
 from datetime import datetime
 from multiprocessing import Manager
-from os import getenv, remove
+from os import remove
 from os.path import exists, join
 from shutil import which
 from time import sleep
@@ -32,7 +48,7 @@ except ImportError:
 
 
 # pip modules
-from sanic import Request, Sanic, Websocket
+from sanic import Request, Websocket
 from sanic.compat import open_async
 from sanic.exceptions import SanicException
 from sanic.handlers import ErrorHandler
@@ -42,11 +58,10 @@ from spotipy.client import Spotify
 
 # local modules
 from yc_colours import RESET, Foreground
-from yc_download import DATA_FOLDER, FFMPEG_PATH, SANJUUNI_PATH, download
-from yc_logging import NO_COLOR, setup_logging
+from yc_download import DATA_FOLDER, FFMPEG_PATH, SANJUUNI_PATH
+from yc_logging import NO_COLOR
 from yc_magic import run_function_in_thread_from_async_function
-from yc_spotify import SpotifyURLProcessor
-from yc_utils import cap_width_and_height, get_audio_name, get_video_name, is_save
+from yc_utils import cap_width_and_height, get_audio_name, get_video_name
 
 VERSION = "0.0.0-poc.1.0.2"
 API_VERSION = "0.0.0-poc.1.0.0"  # https://commandcracker.github.io/YouCube/
@@ -310,7 +325,6 @@ class CustomErrorHandler(ErrorHandler):
         return super().default(request, exception)
 
 
-app = Sanic("youcube")
 app.error_handler = CustomErrorHandler()
 # FIXME: The Client is not Responsing to Websocket pings
 app.config.WEBSOCKET_PING_INTERVAL = 0
@@ -461,13 +475,10 @@ async def wshandler(request: Request, ws: Websocket):
             await ws.send(dumps(response))
 
 
-def main() -> None:
-    """
-    Run all needed services
-    """
-    port = int(getenv("PORT", "5000"))
-    host = getenv("HOST", "127.0.0.1")
-    fast = not getenv("NO_FAST")
+def main():
+    host = getenv("HOST", "0.0.0.0")
+    port = int(getenv("PORT", 8080))
+    fast = getenv("SANIC_NO_UVLOOP") != "true"
 
     app.run(host=host, port=port, fast=fast, access_log=True)
 
